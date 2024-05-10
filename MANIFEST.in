@@ -1,0 +1,6 @@
+recursive-include hd_pk/fisher_matrices *
+recursive-include hd_pk/fisher_param_files *
+recursive-include hd_pk/lensing_plot_data *
+recursive-include hd_pk/pk_plot_data *
+recursive-include hd_pk/theory_spectra *
+recursive-include hd_pk/wdm_transfer_functions *

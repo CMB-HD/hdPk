@@ -1,0 +1,26 @@
+# cosmological parameters from Planck 2018 TT,TE,EE + low l + low E + lensing
+ombh2: 0.02237
+omch2: 0.1200
+theta: 1.04092
+tau: 0.0544
+logA: 3.044
+As: 2.0989031673191437e-09
+ns: 0.9649
+nnu: 3.046
+mnu: 0.06
+num_massive_neutrinos: 1
+# non-linear model:
+halofit_version: 'mead2016'
+# accuracy parameters:
+lmax: 40500
+NonLinear: NonLinear_both
+AccuracyBoost: 1.1
+lAccuracyBoost: 3.0
+lSampleBoost: 3.0
+DoLateRadTruncation: False
+lens_margin: 2050
+lens_potential_accuracy: 30
+# non-CAMB params
+A_ksz: 1
+n_ksz: 0
+m_wdm: 1
