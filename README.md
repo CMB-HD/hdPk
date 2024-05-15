@@ -38,7 +38,7 @@ We provide three Jupyter notebooks that can be run to reproduce the results of M
 
 # Running new Fisher forecasts
 
-The Jupyter notebook `example.ipynb` provides various examples of how to run new Fisher forecasts. 
+The Jupyter notebook `examples.ipynb` provides general instructions along with various specific examples of how to run new Fisher forecasts. The python script `run_examples.py` can be used to run the examples in parallel with MPI, instead of inside the `examples.ipynb` notebook; see that notebook for instructions. The python file `example_calculate_derivatives.py` provides a more general "template" you can use as a guide, along with the instructions in `examples.ipynb`. 
 
 We provide the Python code used to calculate the power spectra and Fisher matrices used in MacInnis & Sehgal (2024) for CDM or WDM models, with or without baryonic feedback. By default, we also vary two parameters in our Fisher forecast that characterize the ampltide and slope of the kSZ power spectrum.
 

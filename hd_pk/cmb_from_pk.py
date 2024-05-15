@@ -5,7 +5,7 @@ import numpy as np
 import camb
 import yaml
 from scipy.interpolate import RectBivariateSpline
-from hdfisher import config, utils, theory, fisher, mpi
+from hdfisher import config, utils, theory, fisher, mpi, dataconfig
 from hd_mock_data import hd_data
 
 
@@ -282,6 +282,136 @@ def fid_params(baryonic_feedback=False, only_camb=False):
     return params
 
 
+def load_param_file(param_file):
+    with open(param_file, 'r') as f:
+        params = yaml.safe_load(f)
+    return params
+
+
+def load_step_sizes(fisher_steps_file, fid_params_dict, varied_param_list=None):
+    if varied_param_list is None:
+        varied_param_list = [] # so we can still check what's in it
+    with open(fisher_steps_file, 'r') as f:
+        step_info = yaml.safe_load(f)
+    # create a dict of absolute step sizes
+    step_sizes = {}
+    for param in step_info.keys():
+        # make sure we have a fiducial value for that param
+        if (param not in fid_params_dict.keys()) and (param in varied_param_list):
+            errmsg = (f"There is a step size for {param} in the "
+                      "`fisher_steps_file`, but no fiducual value for it. You "
+                      "must provide a fiducial value for all varied parameters.")
+            raise ValueError(errmsg)
+        step = step_info[param]['step_size']
+        if 'rel' in step_info[param]['step_type'].lower():
+            step *= fid_params_dict[param]
+        step_sizes[param] = step
+    return step_sizes
+
+
+def get_fids_step_sizes(fiducial_params_dict=None, fisher_steps_dict=None,
+                    fiducial_params_file=None, fisher_steps_file=None,
+                    baryonic_feedback=False, varied_param_list=None):
+    # get the fiducial parameter values:
+    if fiducial_params_dict is not None: # use dict passed by user
+        fid_params = fiducial_params_dict.copy()
+    else:
+        if fiducial_params_file is not None:
+            fid_params = load_param_file(fiducial_params_file)
+        else:
+            default_params_file = default_fid_params_fname(baryonic_feedback=baryonic_feedback)
+            fid_params = load_param_file(default_params_file)
+    # get the step sizes:
+    if fisher_steps_dict is not None:
+        step_sizes = fisher_steps_dict.copy()
+    else:
+        if fisher_steps_file is not None:
+            step_sizes = load_step_sizes(fisher_steps_file, fid_params, varied_param_list=varied_param_list)
+        else:
+            default_step_sizes_file = default_step_sizes_fname(baryonic_feedback=baryonic_feedback)
+            step_sizes = load_step_sizes(default_step_sizes_file, fid_params, varied_param_list=varied_param_list)
+    return fid_params, step_sizes
+
+
+def get_varied_params_list(fid_params, step_sizes, varied_param_list=None):
+    new_step_sizes = step_sizes.copy()
+    # list of varied parameters:
+    if varied_param_list is None:
+        varied_params = list(new_step_sizes.keys())
+    else:
+        varied_params = varied_param_list
+        all_params = list(new_step_sizes.keys())
+        for param in all_params:
+            if param not in varied_params:
+                new_step_sizes.pop(param, None)
+    # for each parameter with a step size, make sure we have a fiducial value:
+    missing_fid_params = []
+    for param in new_step_sizes.keys():
+        if param not in fid_params.keys():
+            missing_fid_params.append(param)
+    if len(missing_fid_params) > 0:
+        errmsg = ("You must provide a fiducial value for the following"
+                 f"parameters in order to vary them: {missing_fid_params}")
+        raise ValueError(errmsg)
+    return varied_params, new_step_sizes
+
+
+
+def calc_fisher_matrix(fisher_dir, cmb_types=['lensed', 'delensed'],
+                       spectra = ['tt', 'te', 'ee', 'bb', 'kk'],
+                       params=None,
+                       priors=None,
+                       desi_bao=False,
+                       hd_data_version='latest'):
+    datalib = hd_data.HDMockData(version=hd_data_version)
+    lmin = datalib.lmin
+    lmax = datalib.lmax
+    lmaxTT = datalib.lmaxTT
+    bin_edges = datalib.bin_edges()
+    if desi_bao:
+        # load in precomputed fisher for DESI BAO
+        hdfisher_datalib = dataconfig.Data()
+        desi_fmat, desi_fisher_params = hdfisher_datalib.load_precomputed_desi_fisher()
+
+    fmats = {}
+    fisher_params = {}
+    derivs_dir = os.path.join(fisher_dir, 'derivs')
+    if not os.path.exists(derivs_dir): # assume user passed the  derivs dir
+        derivs_dir = fisher_dir
+    # load derivatives up to lmax and calculate fisher matrix for all spectra
+    _, fisher_derivs = fisher.load_cmb_fisher_derivs(derivs_dir, cmb_types=cmb_types, lmin=lmin, lmax=lmax, bin_edges=bin_edges)
+    # from lmax to lmaxTT
+    if 'tt' in spectra:
+        _, fisher_derivs_tt = fisher.load_cmb_fisher_derivs(derivs_dir, cmb_types=cmb_types, lmin=lmax, lmax=lmaxTT, bin_edges=bin_edges)
+    # get the fisher matrix for each cmb type
+    for cmb_type in cmb_types:
+        covmat = datalib.block_covmat(cmb_type)
+        if params is None:
+            fisher_params_list = list(fisher_derivs[cmb_type].keys())
+        else:
+            fisher_params_list = params
+        fmats[cmb_type] = fisher.calc_cmb_fisher(covmat, fisher_derivs[cmb_type], fisher_params_list, spectra=spectra)
+        if 'tt' in spectra:
+            cov_tt = datalib.tt_diag_covmat(cmb_type)
+            if params is None:
+                fisher_params_list_tt = list(fisher_derivs_tt[cmb_type].keys())
+            else:
+                fisher_params_list_tt = params
+            fmat_tt = fisher.calc_cmb_fisher(cov_tt, fisher_derivs_tt[cmb_type], fisher_params_list_tt, spectra=['tt'])
+            # add the fisher matrices
+            fmats[cmb_type], fisher_params[cmb_type] = fisher.add_fishers(fmats[cmb_type], fisher_params_list, fmat_tt, fisher_params_list_tt)
+        else:
+            fisher_params[cmb_type] = fisher_params_list.copy()
+        if desi_bao:
+            fmats[cmb_type], fisher_params[cmb_type] = fisher.add_fishers(fmats[cmb_type].copy(), fisher_params[cmb_type],
+                                                                          desi_fmat.copy(), desi_fisher_params, priors=priors)
+        else:
+            # just add the prior(s)
+            fmats[cmb_type] = fisher.add_priors(fmats[cmb_type].copy(), fisher_params[cmb_type], priors)
+    return fmats, fisher_params
+
+
+
 # functions to load pre-computed fisher matrices or theory spectra
 def load_precomputed_theory_spectra(cmb_type, m_wdm=None, baryonic_feedback=False):
     # NOTE: no kSZ
@@ -328,11 +458,12 @@ class HDFisherFromPk:
                  fisher_params=None,
                  wdm=False,
                  xfer_dir=None, xfer_params=None,
-                 ksz=True, ksz_xfer_redshift=0.5,
+                 ksz=False, ksz_xfer_redshift=0.5,
                  cmb_types=['lensed', 'delensed'],
                  hd_data_version='latest'): 
         # setup to calculate theory
-        self.datalib = hd_data.HDMockData(version=hd_data_version)
+        self.hd_data_version = hd_data_version
+        self.datalib = hd_data.HDMockData(version=self.hd_data_version)
         self.lmin = self.datalib.lmin
         self.lmax = self.datalib.lmaxTT
         self.Lmin = self.datalib.Lmin
@@ -352,105 +483,48 @@ class HDFisherFromPk:
         self.wdm_xfer_zmax = 14
         # or interpolate it from a file,
         self.xfer = (xfer_dir is not None)
-        if self.xfer:
-            if self.wdm:
-                errmsg = ("`wdm` must be `False` if `xfer_dir` is not `None`; "
-                          "You can either use the precomputed WDM transfer "
-                          "function by setting `wdm = True`, or use your own "
-                          "transfer function by passing the `xfer_dir`.")
-                raise ValueError(errmsg)
+        if self.xfer and self.wdm:
+            errmsg = ("`wdm` must be `False` if `xfer_dir` is not `None`; "
+                      "You can either use the precomputed WDM transfer "
+                      "function by setting `wdm = True`, or use your own "
+                      "transfer function by passing the `xfer_dir`.")
+            raise ValueError(errmsg)
 
 
         # get list of parameters to vary and their step sizes:
-        if fiducial_params_dict is not None: # use dict passed by user
-            self.fid_params = fiducial_params_dict.copy()
-            if fisher_steps_dict is None:
-                errmsg = ("You must pass a dictionary holding the step size "
-                          "for each varied parameter to `fisher_steps_dict`.")
-                raise ValueError(errmsg)
-            else:
-                self.step_sizes = fisher_steps_dict.copy()
-        else: # load file if passed by user, otherwise use defaults
-            default_params_file = default_fid_params_fname(baryonic_feedback=baryonic_feedback)
-            default_step_sizes_file = default_step_sizes_fname(baryonic_feedback=baryonic_feedback)
-            params_file = fiducial_params_file if (fiducial_params_file is not None) else default_params_file
-            step_sizes_file = fisher_steps_file if (fisher_steps_file is not None) else default_step_sizes_file
-
-            self.fid_params, self.step_sizes = fisher.get_param_info(params_file, step_sizes_file)
+        self.fid_params, step_sizes = self.init_params(fiducial_params_dict=fiducial_params_dict,
+                                                        fisher_steps_dict=fisher_steps_dict,
+                                                        fiducial_params_file=fiducial_params_file,
+                                                        fisher_steps_file=fisher_steps_file,
+                                                        baryonic_feedback=baryonic_feedback,
+                                                        fisher_params=fisher_params,
+                                                        xfer_params=xfer_params)
+        self.fisher_params, self.step_sizes = get_varied_params_list(self.fid_params, step_sizes,
+                                                                     varied_param_list=fisher_params)
 
         # need h and dark matter density for the WDM transfer function:
         self.h, self.Omega_dm = self.get_OmegaDM_and_h(self.fid_params)
-
-        # if using default param and step size files,
-        #  remove kSZ params if not including kSZ,
-        #  and remove WDM params if not using WDM:
-        if (fisher_steps_file is None) and (fisher_steps_dict is None):
-            if not self.wdm:
-                self.fid_params.pop('m_wdm', None)
-                self.step_sizes.pop('m_wdm', None)
-            if not self.ksz:
-                self.fid_params.pop('A_ksz', None)
-                self.step_sizes.pop('A_ksz', None)
-                self.fid_params.pop('n_ksz', None)
-                self.step_sizes.pop('n_ksz', None)
-
-        # if we are including kSZ and/or WDM, make sure we have
-        #  the necessary parameter values:
-        param_names = list(self.fid_params.keys())
-        if self.ksz:
-            if ('A_ksz' not in param_names) or ('n_ksz' not in param_names):
-                errmsg = ("To include the kSZ effect, you must provide "
-                          "fiducial values for both `'A_ksz'` and `'n_ksz'` "
-                          "in either the `fiducial_params_dict` "
-                          "or the `fiducial_params_file`.")
-                raise ValueError(errmsg)
-        if self.wdm:
-            if 'm_wdm' not in param_names:
-                errmsg = ("To use a precomputed WDM transfer function, you "
-                          "must provide a fiducial value for `'m_wdm'` in "
-                          "either the `fiducial_params_dict` "
-                          "or the `fiducial_params_file`.")
-                raise ValueError(errmsg)
+        # list of tuples of param (name, value)
+        self.param_values = fisher.get_varied_param_values(self.fid_params, self.step_sizes)
 
         # load the transfer functions
-        self.xfer_params = []
-        if self.wdm:
+        if self.xfer:
+            if xfer_params is not None:
+                self.xfer_params = xfer_params.copy()
+            else:
+                self.xfer_params = []
+            self.xfer_dict, self.xfer_zmax = interpolate_xfers(xfer_dir, xfer_params=xfer_params)
+        elif self.wdm:
             self.xfer_params = ['m_wdm']
             if 'm_wdm' in self.step_sizes.keys():
                 delta_m_wdm = self.step_sizes['m_wdm']
             else:
                 delta_m_wdm = None
             self.wdm_nonlin_transfer_funcs = get_wdm_nonlin_transfers(self.fid_params['m_wdm'], delta_m_wdm=delta_m_wdm)
-        if self.xfer:
-            if xfer_params is not None:
-                self.xfer_params = xfer_params.copy()
-            self.xfer_dict, self.xfer_zmax = interpolate_xfers(xfer_dir, xfer_params=xfer_params)
-
-        # list of varied parameters:
-        if fisher_params is None:
-            self.fisher_params = list(self.step_sizes.keys())
         else:
-            self.fisher_params = fisher_params
-            all_params = list(self.step_sizes.keys())
-            for param in all_params:
-                if param not in self.fisher_params:
-                    self.step_sizes.pop(param, None)
-
-        # for each parameter with a step size, make sure we have a fiducial value:
-        missing_fid_params = []
-        for param in self.step_sizes.keys():
-            if param not in self.fid_params.keys():
-                missing_fid_params.append(param)
-        if len(missing_fid_params) > 0:
-            errmsg = ("You must provide a fiducial value for the following"
-                     f"parameters in order to vary them: {missing_fid_params}")
-            raise ValueError(errmsg)
-
-        # list of tuples of param (name, value)
-        self.param_values = fisher.get_varied_param_values(self.fid_params, self.step_sizes)
+            self.xfer_params = []
 
         self.ksz_ells, self.cl_ksz = self.datalib.cl_ksz()
-
         if self.wdm or self.xfer:
             self.ksz_xfer_redshift = ksz_xfer_redshift
             if self.ksz_xfer_redshift is not None:
@@ -472,13 +546,56 @@ class HDFisherFromPk:
         self.fisher_dir = output_dir
         self.theo_dir = os.path.join(self.fisher_dir, 'theory')
         self.derivs_dir = os.path.join(self.fisher_dir, 'derivs')
-
         if mpi.rank == 0:
             utils.set_dir(self.fisher_dir)
             utils.set_dir(self.theo_dir)
             utils.set_dir(self.derivs_dir)
         mpi.comm.barrier()
 
+
+    def init_params(self, fiducial_params_dict=None, fisher_steps_dict=None, 
+                    fiducial_params_file=None, fisher_steps_file=None, 
+                    baryonic_feedback=False, fisher_params=None, xfer_params=None):
+        if xfer_params is None:
+            xfer_params = [] # so we can still look for items in list
+        fid_params, step_sizes = get_fids_step_sizes(fiducial_params_dict=fiducial_params_dict, 
+                                                     fisher_steps_dict=fisher_steps_dict, 
+                                                     fiducial_params_file=fiducial_params_file, 
+                                                     fisher_steps_file=fisher_steps_file, 
+                                                     baryonic_feedback=baryonic_feedback, 
+                                                     varied_param_list=fisher_params)
+        # the default parameters and step sizes include kSZ and WDM params;
+        # remove them if they're not needed:
+        using_default_params = (fiducial_params_dict is None) and (fiducial_params_file is None)
+        if using_default_params:
+            if (not self.wdm) and ('m_wdm' not in xfer_params):
+                fid_params.pop('m_wdm', None)
+                step_sizes.pop('m_wdm', None)
+            if (not self.ksz) and ('A_ksz' not in xfer_params):
+                fid_params.pop('A_ksz', None)
+                step_sizes.pop('A_ksz', None)
+            if (not self.ksz) and ('n_ksz' not in xfer_params):
+                fid_params.pop('n_ksz', None)
+                step_sizes.pop('n_ksz', None)
+        # alternatively, if the user passed their own parameters, make sure
+        # that we have kSZ and/or WDM params, if they're needed:
+        else:
+            param_names = list(fid_params.keys())
+            if self.ksz:
+                if ('A_ksz' not in param_names) or ('n_ksz' not in param_names):
+                    errmsg = ("To include the kSZ effect, you must provide "
+                              "fiducial values for both `'A_ksz'` and `'n_ksz'` "
+                              "in either the `fiducial_params_dict` "
+                              "or the `fiducial_params_file`.")
+                    raise ValueError(errmsg)
+            if self.wdm:
+                if 'm_wdm' not in param_names:
+                    errmsg = ("To use a precomputed WDM transfer function, you "
+                              "must provide a fiducial value for `'m_wdm'` in "
+                              "either the `fiducial_params_dict` "
+                              "or the `fiducial_params_file`.")
+                    raise ValueError(errmsg)
+        return fid_params, step_sizes
 
 
     def get_param_dicts(self, varied_param_name=None, varied_param_value=None):
@@ -547,6 +664,8 @@ class HDFisherFromPk:
         return xfer
 
 
+    # TODO: test and remove`
+    """
     def pk_transfer(self, k, z, varied_param_name=None, varied_param_value=None):
         # assume transfer function is one above a certain redshift
         xfer = np.ones(len(k))
@@ -558,6 +677,25 @@ class HDFisherFromPk:
         else:
             xfer[loc] = self.xfer_dict['fid'](k[loc], z[loc], grid=False)
         return xfer
+    """
+    def pk_transfer(self, k, z, varied_param_name=None, varied_param_value=None):
+        # get the transfer function up to the zmax of the stored transfer function;
+        # above that, assume that the transfer function about zmax is independent of z,
+        #  and use the transfer function evaluated at zmax:
+        loc = np.where(z <= self.xfer_zmax)
+        if varied_param_name in self.xfer_params:
+            step_dir = 'up' if (varied_param_value > self.fid_params[varied_param_name]) else 'down'
+            # first get the transfer function above zmax:
+            xfer = self.xfer_dict[varied_param_name][step_dir](k, self.xfer_zmax, grid=False)
+            # then replace it  with the redshift-dependent function below zmax:
+            xfer[loc] = self.xfer_dict[varied_param_name][step_dir](k[loc], z[loc], grid=False)
+        else:
+            # first get the transfer function above zmax:
+            xfer = self.xfer_dict['fid'](k, self.xfer_zmax, grid=False)
+            # then replace it with the redshift-dependent function below zmax:
+            xfer[loc] = self.xfer_dict['fid'](k[loc], z[loc], grid=False)
+        return xfer
+
 
 
     def calculate_cl_ksz(self, varied_param_name=None, varied_param_value=None):
@@ -699,6 +837,21 @@ class HDFisherFromPk:
             self.save_fisher_derivs()
         mpi.comm.barrier()
 
+    def calc_fisher_matrix(self, params=None,
+                       priors=None,
+                       desi_bao=False,
+                       spectra=None):
+        if spectra is None:
+            spectra = self.spectra
+        fmats, fisher_params = calc_fisher_matrix(self.fisher_dir, cmb_types=self.cmb_types, spectra=spectra, params=params, priors=priors, desi_bao=desi_bao, hd_data_version=self.hd_data_version)
+        return fmats, fisher_params
 
-
-
+    def get_fisher_errors(self, params=None,
+                       priors=None,
+                       desi_bao=False,
+                       cmb_types=None, spectra=None):
+        fmats, fisher_params = self.calc_fisher_matrix(params=params, priors=priors, desi_bao=desi_bao, spectra=spectra)
+        errors = {}
+        for cmb_type in self.cmb_types:
+            errors[cmb_type] = fisher.get_fisher_errors(fmats[cmb_type], fisher_params[cmb_type])
+        return errors
