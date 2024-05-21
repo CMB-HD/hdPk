@@ -1,6 +1,6 @@
 # CMB-HD Matter Power Spectrum and Non-CDM Forecast Code
 
-This repository contains the code used in the forecasts of MacInnis & Sehgal (2024). Please cite that work if you use this software or the associated data.
+This repository contains the code used in the forecasts of [MacInnis & Sehgal (2024)](https://arxiv.org/abs/2405.12220). Please cite that work if you use this software or the associated data.
 
 # Installation
 
