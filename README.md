@@ -40,10 +40,10 @@ We provide three Jupyter notebooks that can be run to reproduce the results of M
 
 The Jupyter notebook `examples.ipynb` provides general instructions along with various specific examples of how to run new Fisher forecasts. The python script `run_examples.py` can be used to run the examples in parallel with MPI, instead of inside the `examples.ipynb` notebook; see that notebook for instructions. The python file `example_calculate_derivatives.py` provides a more general "template" you can use as a guide, along with the instructions in `examples.ipynb`. 
 
-We provide the Python code used to calculate the power spectra and Fisher matrices used in MacInnis & Sehgal (2024) for CDM or WDM models, with or without baryonic feedback. By default, we also vary two parameters in our Fisher forecast that characterize the ampltide and slope of the kSZ power spectrum.
+We provide the Python code used to calculate the power spectra and Fisher matrices used in MacInnis & Sehgal (2024) for CDM or WDM models, with or without baryonic feedback. We also provide an option to vary two parameters in our Fisher forecast that characterize the ampltide and slope of the kSZ power spectrum.
 
 You may vary any additional parameters that can be passed to the CAMB `set_params` [function](https://camb.readthedocs.io/en/latest/camb.html#camb.set_params). 
 
-There is also an option to provide your own non-CDM transfer function for the nonlinear matter power spectrum. This can be a single fixed function of wavenumber $k$ and redshift $z$, or it can depend on any number of parameters. In this case, you may also vary the additional parameters that your transfer function depends on (they do not necessarily need to be CAMB parameters). 
+There is also an option to provide your own non-CDM transfer function for the nonlinear matter power spectrum. This can be a single fixed function of wavenumber $k$ and redshift $z$, or it can depend on any number of parameters. In this case, you may also vary the additional parameters that your transfer function depends on (they do not necessarily need to be CAMB parameters). See the example in `examples.ipynb` for more information. 
 
 
