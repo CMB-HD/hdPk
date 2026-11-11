@@ -304,7 +304,7 @@ def load_step_sizes(fisher_steps_file, fid_params_dict, varied_param_list=None):
             raise ValueError(errmsg)
         step = step_info[param]['step_size']
         if 'rel' in step_info[param]['step_type'].lower():
-            step *= fid_params_dict[param]
+            step *= abs(fid_params_dict[param])
         step_sizes[param] = step
     return step_sizes
 
@@ -367,6 +367,7 @@ def calc_fisher_matrix(fisher_dir, cmb_types=['lensed', 'delensed'],
     lmin = datalib.lmin
     lmax = datalib.lmax
     lmaxTT = datalib.lmaxTT
+    highl_tt = (lmaxTT > lmax)
     bin_edges = datalib.bin_edges()
     if desi_bao:
         # load in precomputed fisher for DESI BAO
@@ -381,7 +382,7 @@ def calc_fisher_matrix(fisher_dir, cmb_types=['lensed', 'delensed'],
     # load derivatives up to lmax and calculate fisher matrix for all spectra
     _, fisher_derivs = fisher.load_cmb_fisher_derivs(derivs_dir, cmb_types=cmb_types, lmin=lmin, lmax=lmax, bin_edges=bin_edges)
     # from lmax to lmaxTT
-    if 'tt' in spectra:
+    if highl_tt:
         _, fisher_derivs_tt = fisher.load_cmb_fisher_derivs(derivs_dir, cmb_types=cmb_types, lmin=lmax, lmax=lmaxTT, bin_edges=bin_edges)
     # get the fisher matrix for each cmb type
     for cmb_type in cmb_types:
@@ -391,7 +392,7 @@ def calc_fisher_matrix(fisher_dir, cmb_types=['lensed', 'delensed'],
         else:
             fisher_params_list = params
         fmats[cmb_type] = fisher.calc_cmb_fisher(covmat, fisher_derivs[cmb_type], fisher_params_list, spectra=spectra)
-        if 'tt' in spectra:
+        if highl_tt:
             cov_tt = datalib.tt_diag_covmat(cmb_type)
             if params is None:
                 fisher_params_list_tt = list(fisher_derivs_tt[cmb_type].keys())
@@ -405,7 +406,7 @@ def calc_fisher_matrix(fisher_dir, cmb_types=['lensed', 'delensed'],
         if desi_bao:
             fmats[cmb_type], fisher_params[cmb_type] = fisher.add_fishers(fmats[cmb_type].copy(), fisher_params[cmb_type],
                                                                           desi_fmat.copy(), desi_fisher_params, priors=priors)
-        else:
+        elif priors is not None:
             # just add the prior(s)
             fmats[cmb_type] = fisher.add_priors(fmats[cmb_type].copy(), fisher_params[cmb_type], priors)
     return fmats, fisher_params
@@ -664,20 +665,6 @@ class HDFisherFromPk:
         return xfer
 
 
-    # TODO: test and remove`
-    """
-    def pk_transfer(self, k, z, varied_param_name=None, varied_param_value=None):
-        # assume transfer function is one above a certain redshift
-        xfer = np.ones(len(k))
-        # get the transfer function below this redshift
-        loc = np.where(z <= self.xfer_zmax)
-        if varied_param_name in self.xfer_params:
-            step_dir = 'up' if (varied_param_value > self.fid_params[varied_param_name]) else 'down'
-            xfer[loc] = self.xfer_dict[varied_param_name][step_dir](k[loc], z[loc], grid=False)
-        else:
-            xfer[loc] = self.xfer_dict['fid'](k[loc], z[loc], grid=False)
-        return xfer
-    """
     def pk_transfer(self, k, z, varied_param_name=None, varied_param_value=None):
         # get the transfer function up to the zmax of the stored transfer function;
         # above that, assume that the transfer function about zmax is independent of z,
@@ -840,18 +827,21 @@ class HDFisherFromPk:
     def calc_fisher_matrix(self, params=None,
                        priors=None,
                        desi_bao=False,
+                       cmb_types=None,
                        spectra=None):
+        cmb_types = self.cmb_types if (cmb_types is None) else cmb_types
         if spectra is None:
             spectra = self.spectra
-        fmats, fisher_params = calc_fisher_matrix(self.fisher_dir, cmb_types=self.cmb_types, spectra=spectra, params=params, priors=priors, desi_bao=desi_bao, hd_data_version=self.hd_data_version)
+        fmats, fisher_params = calc_fisher_matrix(self.fisher_dir, cmb_types=cmb_types, spectra=spectra, params=params, priors=priors, desi_bao=desi_bao, hd_data_version=self.hd_data_version)
         return fmats, fisher_params
 
     def get_fisher_errors(self, params=None,
                        priors=None,
                        desi_bao=False,
                        cmb_types=None, spectra=None):
-        fmats, fisher_params = self.calc_fisher_matrix(params=params, priors=priors, desi_bao=desi_bao, spectra=spectra)
+        cmb_types = self.cmb_types if (cmb_types is None) else cmb_types
+        fmats, fisher_params = self.calc_fisher_matrix(params=params, priors=priors, desi_bao=desi_bao, cmb_types=cmb_types, spectra=spectra)
         errors = {}
-        for cmb_type in self.cmb_types:
+        for cmb_type in cmb_types:
             errors[cmb_type] = fisher.get_fisher_errors(fmats[cmb_type], fisher_params[cmb_type])
         return errors
