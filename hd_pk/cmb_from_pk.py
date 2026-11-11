@@ -367,7 +367,7 @@ def calc_fisher_matrix(fisher_dir, cmb_types=['lensed', 'delensed'],
     lmin = datalib.lmin
     lmax = datalib.lmax
     lmaxTT = datalib.lmaxTT
-    highl_tt = (lmaxTT > lmax)
+    highl_tt = (lmaxTT > lmax) and ('tt' in spectra)
     bin_edges = datalib.bin_edges()
     if desi_bao:
         # load in precomputed fisher for DESI BAO
