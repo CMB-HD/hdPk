@@ -35,6 +35,8 @@ We provide three Jupyter notebooks that can be run to reproduce the results of M
   - Note that many of the data points were originally derived by [Chabanier et. al. (2019)](https://arxiv.org/abs/1905.08103); the code to reproduce the plot in that work can be found at [https://github.com/marius311/mpk_compilation](https://github.com/marius311/mpk_compilation). Here we have added the CMB-HD data points. The notebook can be easily modified to add additional data.
 - `hd_non_cdm_forecasts.ipynb`: Reproduces the CMB-HD parameter forecasts for two dark matter models, each with or without baryonic feedback: cold dark matter (CDM-only) or warm dark matter (WDM-only). 
 
+**Note**: To reproduce the results of MacInnis & Sehgal (2024), you must use `'v1.1'` of the [CMB-HD mock data](https://github.com/CMB-HD/hdMockData) by passing `hd_data_version='v1.1'` when initializing the `HDFisherFromPk` class (in `hd_pk/cmb_from_pk.py`). By default, `HDFisherFromPk` will use the latest available mock data version. In the notebooks listed above, we have already set `hd_data_version='v1.1'` for you. All precomputed files provided in this repository were calculated using version `'v1.1'`.
+
 
 # Running new Fisher forecasts
 

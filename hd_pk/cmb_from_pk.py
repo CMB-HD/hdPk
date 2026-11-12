@@ -129,7 +129,7 @@ def wdm_transfer_nonlin_viel(k, z, m_wdm):
 
 def wdm_transfer_nonlin(m_wdm):
     xfer_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'wdm_transfer_functions/')
-    xfer_fname = os.path.join(xfer_dir, f'xfer_wdm_mass{round(m_wdm,2)}keV.txt')
+    xfer_fname = os.path.join(xfer_dir, f'xfer_wdm_mass{float(m_wdm):g}keV.txt')
     if not os.path.exists(xfer_fname):
         errmsg = f"Cannot find a precomputed transfer function for {m_wdm} keV WDM."
         raise ValueError(errmsg)
@@ -415,7 +415,7 @@ def calc_fisher_matrix(fisher_dir, cmb_types=['lensed', 'delensed'],
 
 # functions to load pre-computed fisher matrices or theory spectra
 def load_precomputed_theory_spectra(cmb_type, m_wdm=None, baryonic_feedback=False):
-    # NOTE: no kSZ
+    # NOTE: no kSZ; calculated with version v1.1 of the CMB-HD mock data
     # get the file name:
     theo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'theory_spectra')
     if m_wdm is not None:
@@ -430,7 +430,7 @@ def load_precomputed_theory_spectra(cmb_type, m_wdm=None, baryonic_feedback=Fals
 
 
 def load_precomputed_fisher_matrix(cmb_type, m_wdm=None, baryonic_feedback=False, with_ksz=False, with_desi=False):
-    # NOTE: all have tau prior of +/- 0.007 applied
+    # NOTE: all have tau prior of +/- 0.007 applied and were calculated with version v1.1 of the CMB-HD mock data
     # get the file name:
     fisher_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fisher_matrices')
     fname_root = f'hd_{cmb_type}_fsky0.6_lmin30lmax20100lmaxTT40000'
